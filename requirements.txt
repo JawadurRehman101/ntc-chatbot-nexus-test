@@ -1,9 +1,0 @@
-streamlit
-pyotp
-qrcode[pil]
-Pillow
-psycopg2-binary
-langchain-core
-langgraph
-langchain-huggingface
-huggingface-hub
