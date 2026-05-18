@@ -11,6 +11,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from db import init_db, add_user, get_user, get_user_secret_key, save_email_otp, verify_email_otp
 from email_utils import send_email
 from agent import create_nexus_agent, init_vds_form
+
 # --- Page Configuration ---
 st.set_page_config(
     page_title="NTC Nexus — Customer Support Portal",
@@ -18,14 +19,81 @@ st.set_page_config(
     layout="centered",
 )
 
-# --- Custom CSS ---
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-html, body, [class*="st-"] { font-family: 'Inter', sans-serif; }
-[data-testid="stChatMessage"] { border-radius: 12px; margin-bottom: 0.5rem; }
-</style>
-""", unsafe_allow_html=True)
+# --- Load External CSS ---
+def load_css():
+    css_path = os.path.join(os.path.dirname(__file__), "styles.css")
+    if os.path.exists(css_path):
+        with open(css_path, "r") as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+load_css()
+
+# --- SVG Icons ---
+GLOBE_SVG = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>'
+
+# --- UI Component Helpers ---
+def render_auth_header():
+    st.markdown(f"""
+    <div class="nexus-bg-orbs">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+    <div class="nexus-auth-header">
+        <div class="nexus-logo-icon">{GLOBE_SVG}</div>
+        <h1>NTC Nexus</h1>
+        <p class="nexus-subtitle">Smart Customer Support Portal — National Telecommunication Corporation</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+def render_auth_footer():
+    st.markdown("""
+    <div class="nexus-features">
+        <span class="nexus-feature-pill">🔒 Secure 2FA</span>
+        <span class="nexus-feature-pill">⚡ AI-Powered</span>
+        <span class="nexus-feature-pill">🌐 24/7 Support</span>
+        <span class="nexus-feature-pill">📋 VDS Services</span>
+    </div>
+    <div class="nexus-footer">
+        <span class="nexus-footer-badge">🌐 Powered by NTC Pakistan — Connecting the Nation</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+def render_chat_header():
+    st.markdown(f"""
+    <div class="nexus-chat-header">
+        <div class="header-content">
+            <div class="header-icon">{GLOBE_SVG}</div>
+            <div>
+                <h2>NTC Nexus</h2>
+                <div class="header-sub">Customer Support Portal — National Telecommunication Corporation</div>
+            </div>
+            <div class="status-badge">
+                <span class="status-dot"></span>
+                Online
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def render_sidebar_user(name, email):
+    initial = name[0].upper() if name else "U"
+    st.markdown(f"""
+    <div class="sidebar-user-card">
+        <div class="user-avatar">{initial}</div>
+        <div class="user-name">{name}</div>
+        <div class="user-email">{email}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def render_sidebar_links():
+    st.markdown("""
+    <div class="sidebar-quick-links">
+        <div class="sidebar-quick-link">📞 Helpline: 1218</div>
+        <div class="sidebar-quick-link">📧 info@ntc.net.pk</div>
+        <div class="sidebar-quick-link">🌐 www.ntc.net.pk</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def main():
@@ -53,19 +121,15 @@ def main():
     # LOGGED IN — NEXUS CHAT
     # =============================================
     if st.session_state.logged_in:
-        # Header
-        st.markdown("---")
-        st.markdown("## 🌐 NTC Nexus")
-        st.caption("Customer Support Portal — National Telecommunication Corporation")
-        st.markdown("---")
+        # Chat Header
+        render_chat_header()
 
         # Sidebar
         with st.sidebar:
             st.markdown("### 🌐 Nexus Portal")
-            st.markdown(f"**User:** {st.session_state.user_name}")
-            st.markdown(f"**Email:** {st.session_state.user_email}")
+            render_sidebar_user(st.session_state.user_name, st.session_state.user_email)
             st.divider()
-            st.markdown("### AI Configuration")
+            st.markdown("### ⚙️ AI Configuration")
             st.session_state.hf_token = st.text_input(
                 "Hugging Face Token", value=st.session_state.hf_token, type="password",
                 help="Enter your Hugging Face Access Token to enable Nexus Agent."
@@ -80,6 +144,9 @@ def main():
 
             if st.session_state.hf_token:
                 os.environ["HUGGINGFACEHUB_API_TOKEN"] = st.session_state.hf_token
+            st.divider()
+            st.markdown("### 🔗 Quick Links")
+            render_sidebar_links()
             st.divider()
             if st.button("🚪 Logout", use_container_width=True):
                 for k in list(st.session_state.keys()):
@@ -154,20 +221,18 @@ def main():
     # NOT LOGGED IN — AUTH
     # =============================================
     else:
-        st.markdown("---")
-        st.markdown("## 🌐 NTC Nexus")
-        st.caption("Customer Support Portal — Sign in to continue")
-        st.markdown("---")
+        render_auth_header()
 
         tab1, tab2 = st.tabs(["🔐 Sign In", "📝 Sign Up"])
 
         with tab1:
-            st.subheader("Login to Your Account")
-            email = st.text_input("Email", key="login_email")
-            password = st.text_input("Password", type="password", key="login_password")
-            otp_input = st.text_input("Enter OTP from Google Authenticator", type="password", key="login_otp")
+            st.markdown("#### 👋 Welcome Back")
+            st.caption("Sign in to access your NTC Nexus portal")
+            email = st.text_input("Email Address", key="login_email", placeholder="you@example.com")
+            password = st.text_input("Password", type="password", key="login_password", placeholder="Enter your password")
+            otp_input = st.text_input("Google Authenticator OTP", type="password", key="login_otp", placeholder="6-digit code")
 
-            if st.button("Login", key="login_button", type="primary", use_container_width=True):
+            if st.button("Sign In →", key="login_button", type="primary", use_container_width=True):
                 user = get_user(email, password)
                 if user:
                     secret_key_from_db = get_user_secret_key(email)
@@ -188,11 +253,12 @@ def main():
                     st.error("Invalid Email or Password.")
 
         with tab2:
-            st.subheader("Create New Account")
+            st.markdown("#### ✨ Create Account")
+            st.caption("Join NTC Nexus for smart customer support")
             if st.session_state.email_verification_pending:
                 st.info(f"OTP sent to {st.session_state.pending_user_data['email']}")
-                otp_input_reg = st.text_input("Enter Email OTP", key="reg_otp_input")
-                if st.button("Verify & Register", key="verify_register_button", type="primary", use_container_width=True):
+                otp_input_reg = st.text_input("Enter Email OTP", key="reg_otp_input", placeholder="6-digit verification code")
+                if st.button("Verify & Register →", key="verify_register_button", type="primary", use_container_width=True):
                     if verify_email_otp(st.session_state.pending_user_data["email"], otp_input_reg):
                         secret = pyotp.random_base32()
                         if add_user(
@@ -220,10 +286,10 @@ def main():
                     else:
                         st.error("Invalid or expired OTP.")
             else:
-                reg_name = st.text_input("Name", key="reg_name")
-                reg_email = st.text_input("Email", key="reg_email")
-                reg_pwd = st.text_input("Password", type="password", key="reg_password")
-                if st.button("Send OTP", key="send_otp_button", type="primary", use_container_width=True):
+                reg_name = st.text_input("Full Name", key="reg_name", placeholder="Your full name")
+                reg_email = st.text_input("Email Address", key="reg_email", placeholder="you@example.com")
+                reg_pwd = st.text_input("Password", type="password", key="reg_password", placeholder="Create a strong password")
+                if st.button("Send OTP →", key="send_otp_button", type="primary", use_container_width=True):
                     if reg_name and reg_email and reg_pwd:
                         otp_val = f"{random.randint(100000, 999999)}"
                         if save_email_otp(reg_email, otp_val) and send_email(
@@ -236,6 +302,8 @@ def main():
                             st.error("Failed to send OTP.")
                     else:
                         st.error("Please fill in all fields.")
+
+        render_auth_footer()
 
 
 def _process_user_input(user_input: str):
