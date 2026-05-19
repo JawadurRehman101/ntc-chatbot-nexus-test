@@ -20,11 +20,15 @@ from config import (
     NTC_SERVICES, STORAGE_TYPES,
     BILLING_POC_FIELDS, TECHNICAL_POC_FIELDS,
     SERVER_DETAIL_FIELDS, GENERAL_DETAIL_FIELDS,
+    COLOCATION_BILLING_FIELDS, COLOCATION_REQUIREMENT_FIELDS,
 )
-from generators import generate_vds_pdf, generate_vds_excel
+from generators import generate_vds_pdf, generate_vds_excel, generate_colocation_pdf, generate_colocation_excel
 from email_utils import send_email_with_attachment
 from config import VDS_RECIPIENT_EMAIL
-from db import get_vds_form as db_get_vds_form, save_vds_form as db_save_vds_form
+from db import (
+    get_vds_form as db_get_vds_form, save_vds_form as db_save_vds_form,
+    get_colocation_form as db_get_colocation_form, save_colocation_form as db_save_colocation_form
+)
 
 
 # =============================================
@@ -36,7 +40,7 @@ NEXUS_SYSTEM_PROMPT = """You are Nexus, the AI Customer Support Agent for the Na
 AVAILABLE NTC SERVICES:
 1) IaaS VDS (Virtual Dedicated Server) — Available Now
 2) E-mail Services — Coming Soon
-3) Co-location — Coming Soon
+3) Co-location — Available Now
 4) Shared Web Hosting — Coming Soon
 5) SMS — Coming Soon
 6) Network Services — Coming Soon
@@ -77,12 +81,45 @@ After ALL 4 sections are saved, call `review_vds_form` to show the customer a su
 **STEP 6 — Submit:**
 When the customer confirms the review is correct, IMMEDIATELY call `submit_vds_form`. Do NOT ask any more questions. Do NOT ask them to review again.
 
+=== CO-LOCATION SERVICE APPLICATION WORKFLOW ===
+
+You MUST collect information and call the save tools in this EXACT order.
+YOU MUST CALL THE SAVE TOOL AFTER COLLECTING EACH SECTION. Do NOT skip calling the tool.
+
+**STEP 1 — Billing Details:**
+Ask the customer for: Billing POC Name, Designation, Address, Cell/Phone number, and Office Number.
+Once you have ALL 5 fields, you MUST call `save_colocation_billing` with those values.
+DO NOT proceed to Step 2 until you have called `save_colocation_billing`.
+
+**STEP 2 — Colocation Requirements (General details):**
+Ask the customer to provide the quantities and preferences for each of these items (if not applicable, use "None" or "0" or "No"):
+1. Required 42 U Rack Space (Qty in 42 Rack units)
+2. Required Rack Space (42 U Rack) (Qty in RU units)
+3. Required Power for colocated equipment (Tentative Power Consumption in KWh)
+4. Internet Uplink for colocation equipment (in Mbps)
+5. Network Security Services (Y/N)
+6. Required Number of SSL VPNs (if Any)
+7. Required Number of Endpoint Security Licenses Requirements (Y/N)
+8. SSL Certificate required DV/Wildcard
+9. Domain Registration (Y/N)
+10. Public IP required (Y/N)
+11. Any other Requirement (if any)
+
+Once you have collected these requirements, you MUST call `save_colocation_requirements`.
+DO NOT proceed to Step 3 until you have called `save_colocation_requirements`.
+
+**STEP 3 — Review:**
+After both sections are saved, call `review_colocation_form` to show the customer a summary.
+
+**STEP 4 — Submit:**
+When the customer confirms the review is correct, IMMEDIATELY call `submit_colocation_form`. Do NOT ask any more questions. Do NOT ask them to review again.
+
 RULES:
 - Ask for fields naturally, one or a few at a time.
 - YOU MUST call the corresponding save tool after collecting each section. This is critical.
 - After calling a save tool, continue to the next section.
 - Do NOT make up data.
-- If the customer confirms the review, call submit_vds_form IMMEDIATELY.
+- If the customer confirms the review, call submit tool IMMEDIATELY.
 """
 
 
@@ -111,6 +148,15 @@ def init_vds_form():
         st.session_state.generated_excel = None
     if "form_submitted" not in st.session_state:
         st.session_state.form_submitted = False
+
+
+def init_colocation_form():
+    """Initialize Colocation form in session state if not present."""
+    if "colocation_form" not in st.session_state:
+        st.session_state.colocation_form = {
+            "billing": {},
+            "requirements": {}
+        }
 
 
 # =============================================
@@ -345,6 +391,10 @@ def submit_vds_form(config: RunnableConfig) -> str:
         print(f"  Email to umer: {'sent' if email_sent_to_umer else 'FAILED'}")
 
         if email_sent_to_ntc and email_sent_to_umer:
+            st.session_state.form_submitted = True
+            st.session_state.generated_pdf = pdf_bytes
+            st.session_state.generated_excel = excel_bytes
+            st.session_state.submitted_service_type = "vds"
             return ("Form submitted successfully! Your application has been processed, and the necessary "
                     "PDF and Excel documents have been generated and emailed to NTC. You can expect further "
                     "communication from our team regarding the next steps. If you have any more questions or "
@@ -359,6 +409,159 @@ def submit_vds_form(config: RunnableConfig) -> str:
         return f"Error during submission: {str(e)}"
 
 
+@tool
+def save_colocation_billing(billing_name: str, designation: str, address: str, cell_no: str, office_no: str, config: RunnableConfig) -> str:
+    """Saves Colocation Billing details to the database. You MUST call this after collecting ALL 5 billing details:
+    billing_name, designation, address, cell_no, office_no."""
+    user_email = config.get("configurable", {}).get("user_email")
+    print(f"[TOOL CALLED] save_colocation_billing for {user_email}")
+    print(f"  Data: billing_name={billing_name}, designation={designation}, address={address}, cell_no={cell_no}, office_no={office_no}")
+    
+    form = db_get_colocation_form(user_email)
+    form["billing"] = {
+        "billing_name": billing_name, "designation": designation, "address": address,
+        "cell_no": cell_no, "office_no": office_no,
+    }
+    saved = db_save_colocation_form(user_email, form)
+    print(f"  DB save result: {saved}")
+    return "✅ Colocation Billing details saved successfully. Now proceed to collect the Colocation Requirements details."
+
+
+@tool
+def save_colocation_requirements(
+    rack_space_42u: str, rack_space_ru: str, power_kwh: str, internet_uplink_mbps: str,
+    network_security: str, ssl_vpns: str, endpoint_security: str, ssl_cert_type: str,
+    domain_registration: str, public_ip: str, other_requirements: str, config: RunnableConfig
+) -> str:
+    """Saves Colocation Requirements details to the database. You MUST call this after collecting ALL colocation requirement fields."""
+    user_email = config.get("configurable", {}).get("user_email")
+    print(f"[TOOL CALLED] save_colocation_requirements for {user_email}")
+    
+    form = db_get_colocation_form(user_email)
+    form["requirements"] = {
+        "rack_space_42u": rack_space_42u,
+        "rack_space_ru": rack_space_ru,
+        "power_kwh": power_kwh,
+        "internet_uplink_mbps": internet_uplink_mbps,
+        "network_security": network_security,
+        "ssl_vpns": ssl_vpns,
+        "endpoint_security": endpoint_security,
+        "ssl_cert_type": ssl_cert_type,
+        "domain_registration": domain_registration,
+        "public_ip": public_ip,
+        "other_requirements": other_requirements,
+    }
+    saved = db_save_colocation_form(user_email, form)
+    print(f"  DB save result: {saved}")
+    return "✅ Colocation Requirements saved successfully. All sections are now complete. Now call review_colocation_form to show the customer a review."
+
+
+@tool
+def review_colocation_form(config: RunnableConfig) -> str:
+    """Returns a formatted review of all collected Colocation form data from the database. Call after all sections are saved."""
+    user_email = config.get("configurable", {}).get("user_email")
+    form = db_get_colocation_form(user_email)
+    print(f"[TOOL CALLED] review_colocation_form for {user_email}")
+    
+    lines = ["=== CO-LOCATION SERVICE REQUEST FORM REVIEW ===\n"]
+    lines.append("--- SECTION 1: Billing Details ---")
+    billing = form.get("billing", {})
+    from config import COLOCATION_BILLING_FIELDS
+    for key, label in COLOCATION_BILLING_FIELDS:
+        lines.append(f"{label}: {billing.get(key, 'N/A')}")
+        
+    lines.append("\n--- SECTION 2: Colocation Requirements ---")
+    reqs = form.get("requirements", {})
+    from config import COLOCATION_REQUIREMENT_FIELDS
+    for key, label in COLOCATION_REQUIREMENT_FIELDS:
+        lines.append(f"{label}: {reqs.get(key, 'N/A')}")
+        
+    lines.append("\n=== END OF REVIEW ===")
+    lines.append("Ask the customer to confirm if the details are correct.")
+    lines.append("IMPORTANT: When the customer confirms, you MUST call submit_colocation_form immediately. Do NOT ask again.")
+    return "\n".join(lines)
+
+
+@tool
+def submit_colocation_form(config: RunnableConfig) -> str:
+    """Submits the Colocation form — generates PDF/Excel request sheets and sends email to NTC.
+    Call ONLY after the customer has reviewed and confirmed the form details."""
+    user_email = config.get("configurable", {}).get("user_email", "")
+    user_name = config.get("configurable", {}).get("user_name", "Customer")
+    form = db_get_colocation_form(user_email)
+    
+    print(f"[TOOL CALLED] submit_colocation_form for {user_email}")
+    
+    has_billing = bool(form.get("billing"))
+    has_reqs = bool(form.get("requirements"))
+    
+    if not has_billing and not has_reqs:
+        return ("ERROR: The form data is empty in the database. "
+                "This means the save tools (save_colocation_billing, save_colocation_requirements) were never called. "
+                "Please go back and collect the customer's information again, making sure to call each save tool.")
+                
+    try:
+        from generators import generate_colocation_pdf, generate_colocation_excel
+        # Generate documents
+        print("  Generating Colocation PDF...")
+        pdf_bytes = generate_colocation_pdf(form, user_name, user_email)
+        print(f"  Colocation PDF generated: {len(pdf_bytes)} bytes")
+        
+        print("  Generating Colocation Excel...")
+        excel_bytes = generate_colocation_excel(form, user_name, user_email)
+        print(f"  Colocation Excel generated: {len(excel_bytes)} bytes")
+        
+        # Send email
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        email_body = f"""
+        <html><body>
+        <h2>New Data Center Colocation Services Request Submission</h2>
+        <p><b>Applicant:</b> {user_name}</p>
+        <p><b>Email:</b> {user_email}</p>
+        <p><b>Date:</b> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+        <p>Please find the detailed request form attached.</p>
+        </body></html>
+        """
+        attachments = [
+            {"bytes": pdf_bytes, "filename": f"Colocation_Request_{timestamp}.pdf"},
+            {"bytes": excel_bytes, "filename": f"Colocation_Request_{timestamp}.xlsx"},
+        ]
+        
+        print("  Sending email to test.jawad@ntc.org.pk...")
+        email_sent_to_ntc = send_email_with_attachment(
+            "jawad.malakandkp@gmail.com",
+            f"Colocation Request - {user_name} - {datetime.datetime.now().strftime('%Y-%m-%d')}",
+            email_body, attachments,
+        )
+        print(f"  Email to NTC: {'sent' if email_sent_to_ntc else 'FAILED'}")
+        
+        print("  Sending email to umerhayatkhan1976@gmail.com...")
+        email_sent_to_umer = send_email_with_attachment(
+            "umerhayatkhan1976@gmail.com",
+            f"Colocation Request - {user_name} - {datetime.datetime.now().strftime('%Y-%m-%d')}",
+            email_body, attachments,
+        )
+        print(f"  Email to umer: {'sent' if email_sent_to_umer else 'FAILED'}")
+        
+        if email_sent_to_ntc and email_sent_to_umer:
+            st.session_state.form_submitted = True
+            st.session_state.generated_pdf = pdf_bytes
+            st.session_state.generated_excel = excel_bytes
+            st.session_state.submitted_service_type = "colocation"
+            return ("Form submitted successfully! Your application has been processed, and the necessary "
+                    "PDF and Excel documents have been generated and emailed to NTC. You can expect further "
+                    "communication from our team regarding the next steps. If you have any more questions or "
+                    "need assistance, feel free to reach out. Thank you for choosing NTC for your Colocation "
+                    "service. Have a great day!")
+        else:
+            return "Documents generated successfully but email sending failed. Please contact NTC support."
+    except Exception as e:
+        print("====== SUBMIT COLOCATION FORM ERROR ======")
+        traceback.print_exc()
+        print("==========================================")
+        return f"Error during submission: {str(e)}"
+
+
 # =============================================
 # AGENT CREATION
 # =============================================
@@ -367,6 +570,8 @@ ALL_TOOLS = [
     list_ntc_services, save_billing_poc, save_technical_poc,
     setup_servers, save_server_config,
     save_general_details, review_vds_form, submit_vds_form,
+    save_colocation_billing, save_colocation_requirements,
+    review_colocation_form, submit_colocation_form,
 ]
 
 

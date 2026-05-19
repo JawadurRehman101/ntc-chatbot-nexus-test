@@ -10,7 +10,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 
 from db import init_db, add_user, get_user, get_user_secret_key, save_email_otp, verify_email_otp
 from email_utils import send_email
-from agent import create_nexus_agent, init_vds_form
+from agent import create_nexus_agent, init_vds_form, init_colocation_form
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -99,6 +99,7 @@ def render_sidebar_links():
 def main():
     init_db()
     init_vds_form()
+    init_colocation_form()
 
     # --- Session State Defaults ---
     defaults = {
@@ -112,6 +113,7 @@ def main():
         "form_submitted": False,
         "generated_pdf": None,
         "generated_excel": None,
+        "submitted_service_type": None,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -137,10 +139,13 @@ def main():
 
             # --- Debug Data Monitor ---
             with st.expander("🔍 Nexus Data Monitor", expanded=False):
-                st.write("Current Form Data (Live from DB):")
-                from db import get_vds_form
+                st.write("Current VDS Form (Live from DB):")
+                from db import get_vds_form, get_colocation_form
                 db_form = get_vds_form(st.session_state.user_email)
                 st.json(db_form)
+                st.write("Current Colocation Form (Live from DB):")
+                db_colo = get_colocation_form(st.session_state.user_email)
+                st.json(db_colo)
 
             if st.session_state.hf_token:
                 os.environ["HUGGINGFACEHUB_API_TOKEN"] = st.session_state.hf_token
@@ -175,19 +180,27 @@ def main():
         # Download buttons if form was submitted
         if st.session_state.form_submitted and st.session_state.generated_pdf:
             st.markdown("---")
-            st.success("✅ VDS Proforma submitted! Download your copies:")
+            service_type = st.session_state.get("submitted_service_type", "vds")
+            if service_type == "colocation":
+                label = "Colocation Request"
+                file_prefix = "Colocation_Request"
+            else:
+                label = "VDS Proforma"
+                file_prefix = "VDS_Proforma"
+                
+            st.success(f"✅ {label} submitted! Download your copies:")
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             col1, col2 = st.columns(2)
             with col1:
                 st.download_button(
                     "📥 Download PDF", data=st.session_state.generated_pdf,
-                    file_name=f"VDS_Proforma_{timestamp}.pdf", mime="application/pdf",
+                    file_name=f"{file_prefix}_{timestamp}.pdf", mime="application/pdf",
                     use_container_width=True,
                 )
             with col2:
                 st.download_button(
                     "📥 Download Excel", data=st.session_state.generated_excel,
-                    file_name=f"VDS_Proforma_{timestamp}.xlsx",
+                    file_name=f"{file_prefix}_{timestamp}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                 )

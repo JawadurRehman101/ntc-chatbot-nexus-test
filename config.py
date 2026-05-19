@@ -18,7 +18,7 @@ VDS_RECIPIENT_EMAIL = "jawad.malakandkp@gmail.com"
 NTC_SERVICES = [
     {"name": "IaaS VDS (Virtual Dedicated Server)", "key": "vds", "available": True},
     {"name": "E-mail Services", "key": "email", "available": False},
-    {"name": "Co-location", "key": "colocation", "available": False},
+    {"name": "Co-location", "key": "colocation", "available": True},
     {"name": "Shared Web Hosting", "key": "hosting", "available": False},
     {"name": "SMS", "key": "sms", "available": False},
     {"name": "Network Services", "key": "network", "available": False},
@@ -65,3 +65,27 @@ GENERAL_DETAIL_FIELDS = [
 ]
 
 STORAGE_TYPES = ["SAS", "Auto Tiered", "NLSAS", "SSD", "NVME"]
+
+# --- Colocation Form Field Definitions ---
+COLOCATION_BILLING_FIELDS = [
+    ("billing_name", "Billing POC Name"),
+    ("designation", "Designation"),
+    ("address", "Address"),
+    ("cell_no", "Cell/Phone number"),
+    ("office_no", "Office Number"),
+]
+
+COLOCATION_REQUIREMENT_FIELDS = [
+    ("rack_space_42u", "Required 42 U Rack Space (Qty in 42 Rack)"),
+    ("rack_space_ru", "Required Rack Space (42 U Rack) (Qty in RU)"),
+    ("power_kwh", "Required Power for colocated equipment (Tentative Power Consumption in KWh)"),
+    ("internet_uplink_mbps", "Internet Uplink for colocation equipment (in Mbps)"),
+    ("network_security", "Network Security Services (Y/N)"),
+    ("ssl_vpns", "Required Number of SSL VPNs (if Any)"),
+    ("endpoint_security", "Required Number of Endpoint Security Licenses Requirements (Y/N)"),
+    ("ssl_cert_type", "SSL Certificate required DV/Wildcard"),
+    ("domain_registration", "Domain Registration (Y/N)"),
+    ("public_ip", "Public IP required (Y/N)"),
+    ("other_requirements", "Any other Requirement (if any)"),
+]
+
