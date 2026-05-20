@@ -19,7 +19,7 @@ NTC_SERVICES = [
     {"name": "IaaS VDS (Virtual Dedicated Server)", "key": "vds", "available": True},
     {"name": "E-mail Services", "key": "email", "available": False},
     {"name": "Co-location", "key": "colocation", "available": True},
-    {"name": "Shared Web Hosting", "key": "hosting", "available": False},
+    {"name": "Shared Web Hosting", "key": "hosting", "available": True},
     {"name": "SMS", "key": "sms", "available": False},
     {"name": "Network Services", "key": "network", "available": False},
 ]
@@ -88,4 +88,36 @@ COLOCATION_REQUIREMENT_FIELDS = [
     ("public_ip", "Public IP required (Y/N)"),
     ("other_requirements", "Any other Requirement (if any)"),
 ]
+
+# --- Shared Web Hosting Form Field Definitions ---
+HOSTING_ORG_FIELDS = [
+    ("advice_number", "Advice Number"),
+    ("org_name", "Request by Organization"),
+    ("tech_person", "Technical Contact Person"),
+    ("designation", "Designation"),
+    ("tech_poc_email_phone", "Tech PoC Email / Phone"),
+    ("request_type", "Request Type"),
+    ("testing_date", "Testing environment provision date"),
+]
+
+HOSTING_SERVER_FIELDS = [
+    ("web_server_ip", "Web Server IP"),
+    ("hosting_platform", "Website Hosting Platform"),
+    ("web_space_gb", "Web Space (GB)"),
+    ("db_space_gb", "Database Space (GB)"),
+    ("domain_urls", "Domain / Sub Domain URL(s)"),
+    ("custom_cms_url", "Custom CMS URL (if any)"),
+    ("mgmt_url", "cPanel / Plesk Panel Mgmt URL for Webmaster"),
+    ("domain_registration_ntc", "Domain Registration by NTC"),
+]
+
+HOSTING_DNS_FIELDS = [
+    ("authority_dns", "Authority DNS details (if not NTC)"),
+    ("customer_static_ip", "Customer Static IP for Mgmt"),
+    ("vpn", "VPN"),
+    ("ssl_type", "SSL Type"),
+    ("provisioned_by", "Provisioned By (Name)"),
+    ("activation_date", "Service Activation Date"),
+]
+
 

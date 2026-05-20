@@ -8,9 +8,9 @@ import datetime
 
 from langchain_core.messages import HumanMessage, AIMessage
 
-from db import init_db, add_user, get_user, get_user_secret_key, save_email_otp, verify_email_otp
+from db import init_db, add_user, get_user, get_user_secret_key, save_email_otp, verify_email_otp, get_hosting_form
 from email_utils import send_email
-from agent import create_nexus_agent, init_vds_form, init_colocation_form
+from agent import create_nexus_agent, init_vds_form, init_colocation_form, init_hosting_form
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -100,6 +100,7 @@ def main():
     init_db()
     init_vds_form()
     init_colocation_form()
+    init_hosting_form()
 
     # --- Session State Defaults ---
     defaults = {
@@ -140,12 +141,15 @@ def main():
             # --- Debug Data Monitor ---
             with st.expander("🔍 Nexus Data Monitor", expanded=False):
                 st.write("Current VDS Form (Live from DB):")
-                from db import get_vds_form, get_colocation_form
+                from db import get_vds_form, get_colocation_form, get_hosting_form
                 db_form = get_vds_form(st.session_state.user_email)
                 st.json(db_form)
                 st.write("Current Colocation Form (Live from DB):")
                 db_colo = get_colocation_form(st.session_state.user_email)
                 st.json(db_colo)
+                st.write("Current Shared Hosting Form (Live from DB):")
+                db_hosting = get_hosting_form(st.session_state.user_email)
+                st.json(db_hosting)
 
             if st.session_state.hf_token:
                 os.environ["HUGGINGFACEHUB_API_TOKEN"] = st.session_state.hf_token
@@ -184,6 +188,9 @@ def main():
             if service_type == "colocation":
                 label = "Colocation Request"
                 file_prefix = "Colocation_Request"
+            elif service_type == "hosting":
+                label = "Shared Hosting Request"
+                file_prefix = "Shared_Hosting_Request"
             else:
                 label = "VDS Proforma"
                 file_prefix = "VDS_Proforma"

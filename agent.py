@@ -21,13 +21,19 @@ from config import (
     BILLING_POC_FIELDS, TECHNICAL_POC_FIELDS,
     SERVER_DETAIL_FIELDS, GENERAL_DETAIL_FIELDS,
     COLOCATION_BILLING_FIELDS, COLOCATION_REQUIREMENT_FIELDS,
+    HOSTING_ORG_FIELDS, HOSTING_SERVER_FIELDS, HOSTING_DNS_FIELDS,
 )
-from generators import generate_vds_pdf, generate_vds_excel, generate_colocation_pdf, generate_colocation_excel
+from generators import (
+    generate_vds_pdf, generate_vds_excel,
+    generate_colocation_pdf, generate_colocation_excel,
+    generate_hosting_pdf, generate_hosting_excel,
+)
 from email_utils import send_email_with_attachment
 from config import VDS_RECIPIENT_EMAIL
 from db import (
     get_vds_form as db_get_vds_form, save_vds_form as db_save_vds_form,
-    get_colocation_form as db_get_colocation_form, save_colocation_form as db_save_colocation_form
+    get_colocation_form as db_get_colocation_form, save_colocation_form as db_save_colocation_form,
+    get_hosting_form as db_get_hosting_form, save_hosting_form as db_save_hosting_form,
 )
 
 
@@ -41,7 +47,7 @@ AVAILABLE NTC SERVICES:
 1) IaaS VDS (Virtual Dedicated Server) — Available Now
 2) E-mail Services — Coming Soon
 3) Co-location — Available Now
-4) Shared Web Hosting — Coming Soon
+4) Shared Web Hosting — Available Now
 5) SMS — Coming Soon
 6) Network Services — Coming Soon
 
@@ -114,6 +120,56 @@ After both sections are saved, call `review_colocation_form` to show the custome
 **STEP 4 — Submit:**
 When the customer confirms the review is correct, IMMEDIATELY call `submit_colocation_form`. Do NOT ask any more questions. Do NOT ask them to review again.
 
+=== SHARED WEB HOSTING SERVICE APPLICATION WORKFLOW ===
+
+You MUST collect information and call the save tools in this EXACT order.
+YOU MUST CALL THE SAVE TOOL AFTER COLLECTING EACH SECTION. Do NOT skip calling the tool.
+
+**STEP 1 — Organization & Contact Details:**
+Ask the customer for:
+- Advice Number
+- Request by Organization
+- Technical Contact Person
+- Designation
+- Tech PoC Email / Phone
+- Request Type (New Activation or Change Request)
+- Testing environment provision date
+
+Once you have ALL 7 fields, you MUST call `save_hosting_org_details` with those values.
+DO NOT proceed to Step 2 until you have called `save_hosting_org_details`.
+
+**STEP 2 — Web Server & Space Requirements:**
+Ask the customer for:
+- Web Server IP
+- Website Hosting Platform (Linux- CPanel, Windows Plesk Panel, or Windows Shard- IIS)
+- Web Space (GB)
+- Database Space (GB)
+- Domain / Sub Domain URL(s)
+- Custom CMS URL (if any)
+- cPanel / Plesk Panel Mgmt URL for Webmaster
+- Domain Registration by NTC (Yes or No)
+
+Once you have ALL 8 fields, you MUST call `save_hosting_server_details` with those values.
+DO NOT proceed to Step 3 until you have called `save_hosting_server_details`.
+
+**STEP 3 — Security & DNS Configuration:**
+Ask the customer for:
+- Authority DNS details (if not NTC)
+- Customer Static IP for Mgmt
+- VPN (Provisioned or Not Provisioned)
+- SSL Type (DV, Wildcard, or Multi-Domain)
+- Provisioned By (Name)
+- Service Activation Date
+
+Once you have ALL 6 fields, you MUST call `save_hosting_dns_details` with those values.
+DO NOT proceed to Step 4 until you have called `save_hosting_dns_details`.
+
+**STEP 4 — Review:**
+After ALL 3 sections are saved, call `review_hosting_form` to show the customer a summary.
+
+**STEP 5 — Submit:**
+When the customer confirms the review is correct, IMMEDIATELY call `submit_hosting_form`. Do NOT ask any more questions. Do NOT ask them to review again.
+
 RULES:
 - Ask for fields naturally, one or a few at a time.
 - YOU MUST call the corresponding save tool after collecting each section. This is critical.
@@ -156,6 +212,16 @@ def init_colocation_form():
         st.session_state.colocation_form = {
             "billing": {},
             "requirements": {}
+        }
+
+
+def init_hosting_form():
+    """Initialize Shared Web Hosting form in session state if not present."""
+    if "hosting_form" not in st.session_state:
+        st.session_state.hosting_form = {
+            "org_details": {},
+            "server_details": {},
+            "dns_details": {}
         }
 
 
@@ -566,12 +632,208 @@ def submit_colocation_form(config: RunnableConfig) -> str:
 # AGENT CREATION
 # =============================================
 
+@tool
+def save_hosting_org_details(
+    advice_number: str, org_name: str, tech_person: str, designation: str,
+    tech_poc_email_phone: str, request_type: str, testing_date: str, config: RunnableConfig
+) -> str:
+    """Saves Shared Web Hosting Organization & Request Details to the database.
+    You MUST call this after collecting ALL 7 fields: advice_number, org_name, tech_person,
+    designation, tech_poc_email_phone, request_type, testing_date."""
+    user_email = config.get("configurable", {}).get("user_email")
+    print(f"[TOOL CALLED] save_hosting_org_details for {user_email}")
+    
+    form = db_get_hosting_form(user_email)
+    form["org_details"] = {
+        "advice_number": advice_number,
+        "org_name": org_name,
+        "tech_person": tech_person,
+        "designation": designation,
+        "tech_poc_email_phone": tech_poc_email_phone,
+        "request_type": request_type,
+        "testing_date": testing_date,
+    }
+    saved = db_save_hosting_form(user_email, form)
+    print(f"  DB save result: {saved}")
+    return "✅ Shared Web Hosting Organization details saved successfully. Now proceed to collect Step 2: Web Server & Space Requirements."
+
+
+@tool
+def save_hosting_server_details(
+    web_server_ip: str, hosting_platform: str, web_space_gb: str, db_space_gb: str,
+    domain_urls: str, custom_cms_url: str, mgmt_url: str, domain_registration_ntc: str, config: RunnableConfig
+) -> str:
+    """Saves Shared Web Hosting Server and Space Details to the database.
+    You MUST call this after collecting ALL 8 server fields."""
+    user_email = config.get("configurable", {}).get("user_email")
+    print(f"[TOOL CALLED] save_hosting_server_details for {user_email}")
+    
+    form = db_get_hosting_form(user_email)
+    form["server_details"] = {
+        "web_server_ip": web_server_ip,
+        "hosting_platform": hosting_platform,
+        "web_space_gb": web_space_gb,
+        "db_space_gb": db_space_gb,
+        "domain_urls": domain_urls,
+        "custom_cms_url": custom_cms_url,
+        "mgmt_url": mgmt_url,
+        "domain_registration_ntc": domain_registration_ntc,
+    }
+    saved = db_save_hosting_form(user_email, form)
+    print(f"  DB save result: {saved}")
+    return "✅ Shared Web Hosting Server details saved successfully. Now proceed to collect Step 3: Security & DNS Configuration."
+
+
+@tool
+def save_hosting_dns_details(
+    authority_dns: str, customer_static_ip: str, vpn: str, ssl_type: str,
+    provisioned_by: str, activation_date: str, config: RunnableConfig
+) -> str:
+    """Saves Shared Web Hosting DNS & Security Configuration to the database.
+    You MUST call this after collecting ALL 6 DNS and security fields."""
+    user_email = config.get("configurable", {}).get("user_email")
+    print(f"[TOOL CALLED] save_hosting_dns_details for {user_email}")
+    
+    form = db_get_hosting_form(user_email)
+    form["dns_details"] = {
+        "authority_dns": authority_dns,
+        "customer_static_ip": customer_static_ip,
+        "vpn": vpn,
+        "ssl_type": ssl_type,
+        "provisioned_by": provisioned_by,
+        "activation_date": activation_date,
+    }
+    saved = db_save_hosting_form(user_email, form)
+    print(f"  DB save result: {saved}")
+    return "✅ Shared Web Hosting DNS & Security details saved successfully. All sections are complete. Call review_hosting_form to show the customer a review."
+
+
+@tool
+def review_hosting_form(config: RunnableConfig) -> str:
+    """Returns a formatted review of all collected Shared Web Hosting form data. Call after all sections are saved."""
+    user_email = config.get("configurable", {}).get("user_email")
+    form = db_get_hosting_form(user_email)
+    print(f"[TOOL CALLED] review_hosting_form for {user_email}")
+    
+    lines = ["=== SHARED WEB HOSTING SERVICE ACTIVATION REVIEW ===\n"]
+    
+    lines.append("--- SECTION 1: Organization & Request Details ---")
+    org = form.get("org_details", {})
+    from config import HOSTING_ORG_FIELDS
+    for key, label in HOSTING_ORG_FIELDS:
+        lines.append(f"{label}: {org.get(key, 'N/A')}")
+        
+    lines.append("\n--- SECTION 2: Web Server & Space Requirements ---")
+    srv = form.get("server_details", {})
+    from config import HOSTING_SERVER_FIELDS
+    for key, label in HOSTING_SERVER_FIELDS:
+        lines.append(f"{label}: {srv.get(key, 'N/A')}")
+        
+    lines.append("\n--- SECTION 3: Security & DNS Configuration ---")
+    dns = form.get("dns_details", {})
+    from config import HOSTING_DNS_FIELDS
+    for key, label in HOSTING_DNS_FIELDS:
+        lines.append(f"{label}: {dns.get(key, 'N/A')}")
+        
+    lines.append("\n=== END OF REVIEW ===")
+    lines.append("Ask the customer to confirm if the details are correct.")
+    lines.append("IMPORTANT: When the customer confirms, you MUST call submit_hosting_form immediately. Do NOT ask again.")
+    return "\n".join(lines)
+
+
+@tool
+def submit_hosting_form(config: RunnableConfig) -> str:
+    """Submits the Shared Web Hosting form — generates PDF/Excel request sheets and sends email to NTC.
+    Call ONLY after the customer has reviewed and confirmed the form details."""
+    user_email = config.get("configurable", {}).get("user_email", "")
+    user_name = config.get("configurable", {}).get("user_name", "Customer")
+    form = db_get_hosting_form(user_email)
+    
+    print(f"[TOOL CALLED] submit_hosting_form for {user_email}")
+    
+    has_org = bool(form.get("org_details"))
+    has_srv = bool(form.get("server_details"))
+    has_dns = bool(form.get("dns_details"))
+    
+    if not has_org and not has_srv and not has_dns:
+        return ("ERROR: The form data is empty in the database. "
+                "This means the save tools were never called. "
+                "Please go back and collect the customer's information again.")
+                
+    try:
+        from generators import generate_hosting_pdf, generate_hosting_excel
+        # Generate documents
+        print("  Generating Shared Web Hosting PDF...")
+        pdf_bytes = generate_hosting_pdf(form, user_name, user_email)
+        print(f"  Hosting PDF generated: {len(pdf_bytes)} bytes")
+        
+        print("  Generating Shared Web Hosting Excel...")
+        excel_bytes = generate_hosting_excel(form, user_name, user_email)
+        print(f"  Hosting Excel generated: {len(excel_bytes)} bytes")
+        
+        # Send email
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        email_body = f"""
+        <html><body>
+        <h2>New Shared Web Hosting Services Request Submission</h2>
+        <p><b>Applicant:</b> {user_name}</p>
+        <p><b>Email:</b> {user_email}</p>
+        <p><b>Date:</b> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+        <p>Please find the detailed request form attached.</p>
+        </body></html>
+        """
+        attachments = [
+            {"bytes": pdf_bytes, "filename": f"Shared_Web_Hosting_Request_{timestamp}.pdf"},
+            {"bytes": excel_bytes, "filename": f"Shared_Web_Hosting_Request_{timestamp}.xlsx"},
+        ]
+        
+        print("  Sending email to test.jawad@ntc.org.pk...")
+        email_sent_to_ntc = send_email_with_attachment(
+            "test.jawad@ntc.org.pk",
+            f"Shared Web Hosting Request - {user_name} - {datetime.datetime.now().strftime('%Y-%m-%d')}",
+            email_body, attachments,
+        )
+        print(f"  Email to NTC: {'sent' if email_sent_to_ntc else 'FAILED'}")
+        
+        print("  Sending email to umerhayatkhan1976@gmail.com...")
+        email_sent_to_umer = send_email_with_attachment(
+            "umerhayatkhan1976@gmail.com",
+            f"Shared Web Hosting Request - {user_name} - {datetime.datetime.now().strftime('%Y-%m-%d')}",
+            email_body, attachments,
+        )
+        print(f"  Email to umer: {'sent' if email_sent_to_umer else 'FAILED'}")
+        
+        if email_sent_to_ntc and email_sent_to_umer:
+            st.session_state.form_submitted = True
+            st.session_state.generated_pdf = pdf_bytes
+            st.session_state.generated_excel = excel_bytes
+            st.session_state.submitted_service_type = "hosting"
+            return ("Form submitted successfully! Your application has been processed, and the necessary "
+                    "PDF and Excel documents have been generated and emailed to NTC. You can expect further "
+                    "communication from our team regarding the next steps. If you have any more questions or "
+                    "need assistance, feel free to reach out. Thank you for choosing NTC for your Shared Web Hosting "
+                    "service. Have a great day!")
+        else:
+            return "Documents generated successfully but email sending failed. Please contact NTC support."
+    except Exception as e:
+        print("====== SUBMIT HOSTING FORM ERROR ======")
+        traceback.print_exc()
+        print("=======================================")
+        return f"Error during submission: {str(e)}"
+
+
+# =============================================
+# AGENT CREATION
+# =============================================
+
 ALL_TOOLS = [
     list_ntc_services, save_billing_poc, save_technical_poc,
     setup_servers, save_server_config,
     save_general_details, review_vds_form, submit_vds_form,
     save_colocation_billing, save_colocation_requirements,
     review_colocation_form, submit_colocation_form,
+    save_hosting_org_details, save_hosting_server_details,
+    save_hosting_dns_details, review_hosting_form, submit_hosting_form,
 ]
 
 

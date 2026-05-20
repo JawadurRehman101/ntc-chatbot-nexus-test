@@ -40,6 +40,10 @@ def init_db():
             email VARCHAR(255) PRIMARY KEY,
             form_data JSONB NOT NULL,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS hosting_forms (
+            email VARCHAR(255) PRIMARY KEY,
+            form_data JSONB NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
         conn.commit()
     except Exception as e:
         st.error(f"Database initialization error: {e}")
@@ -240,4 +244,55 @@ def get_colocation_form(email):
     finally:
         if conn:
             conn.close()
+
+
+def save_hosting_form(email, form_data):
+    """Saves the Shared Web Hosting form JSON for a user."""
+    import json
+    conn = None
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO hosting_forms (email, form_data, updated_at) VALUES (%s, %s, CURRENT_TIMESTAMP) "
+            "ON CONFLICT (email) DO UPDATE SET form_data = EXCLUDED.form_data, updated_at = CURRENT_TIMESTAMP",
+            (email, json.dumps(form_data))
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"DB Error save_hosting_form: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_hosting_form(email):
+    """Retrieves the Shared Web Hosting form JSON for a user."""
+    import json
+    conn = None
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT form_data FROM hosting_forms WHERE email = %s", (email,))
+        res = c.fetchone()
+        if res:
+            return res[0] if isinstance(res[0], dict) else json.loads(res[0])
+        return {
+            "org_details": {},
+            "server_details": {},
+            "dns_details": {}
+        }
+    except Exception as e:
+        print(f"DB Error get_hosting_form: {e}")
+        return {
+            "org_details": {},
+            "server_details": {},
+            "dns_details": {}
+        }
+    finally:
+        if conn:
+            conn.close()
+
 

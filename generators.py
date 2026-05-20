@@ -5,6 +5,15 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
 
+def clean_pdf_string(s):
+    if not isinstance(s, str):
+        return str(s)
+    # Replace common non-latin-1 / special unicode characters with readable standard ones
+    s = s.replace("\u2013", "-").replace("\u2014", "-")
+    s = s.replace("\u201c", '"').replace("\u201d", '"').replace("\u2018", "'").replace("\u2019", "'")
+    return s.encode('latin-1', 'replace').decode('latin-1')
+
+
 class VDSProformaPDF(FPDF):
     def header(self):
         self.set_font("Helvetica", "B", 18)
@@ -34,9 +43,9 @@ class VDSProformaPDF(FPDF):
 
     def add_field_row(self, label, value):
         self.set_font("Helvetica", "B", 10)
-        self.cell(70, 7, label, border=1)
+        self.cell(90, 7, clean_pdf_string(label), border=1)
         self.set_font("Helvetica", "", 10)
-        self.cell(0, 7, str(value), border=1, new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 7, clean_pdf_string(value), border=1, new_x="LMARGIN", new_y="NEXT")
 
 
 def generate_vds_pdf(form_data, user_name, user_email):
@@ -367,4 +376,242 @@ def generate_colocation_excel(form_data, user_name, user_email):
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
+
+
+class HostingProformaPDF(FPDF):
+    def header(self):
+        self.set_font("Helvetica", "B", 18)
+        self.set_text_color(0, 100, 60)
+        self.cell(0, 10, "National Telecommunication Corporation", align="C", new_x="LMARGIN", new_y="NEXT")
+        self.set_font("Helvetica", "", 11)
+        self.set_text_color(80, 80, 80)
+        self.cell(0, 7, "Data Center Shared Web Hosting Service Activation Form", align="C", new_x="LMARGIN", new_y="NEXT")
+        self.set_draw_color(0, 100, 60)
+        self.set_line_width(0.8)
+        self.line(10, self.get_y() + 2, 200, self.get_y() + 2)
+        self.ln(8)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font("Helvetica", "I", 8)
+        self.set_text_color(128, 128, 128)
+        self.cell(0, 10, f"Page {self.page_no()}/{{nb}} | Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", align="C")
+
+    def section_title(self, title):
+        self.set_font("Helvetica", "B", 13)
+        self.set_fill_color(0, 100, 60)
+        self.set_text_color(255, 255, 255)
+        self.cell(0, 9, f"  {title}", fill=True, new_x="LMARGIN", new_y="NEXT")
+        self.set_text_color(0, 0, 0)
+        self.ln(3)
+
+    def add_field_row(self, label, value):
+        self.set_font("Helvetica", "B", 10)
+        self.cell(90, 7, clean_pdf_string(label), border=1)
+        self.set_font("Helvetica", "", 10)
+        self.cell(0, 7, clean_pdf_string(value), border=1, new_x="LMARGIN", new_y="NEXT")
+
+
+def generate_hosting_pdf(form_data, user_name, user_email):
+    from config import HOSTING_ORG_FIELDS, HOSTING_SERVER_FIELDS, HOSTING_DNS_FIELDS
+
+    pdf = HostingProformaPDF()
+    pdf.alias_nb_pages()
+    pdf.add_page()
+
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 6, f"Applicant: {user_name}  |  Email: {user_email}  |  Date: {datetime.datetime.now().strftime('%Y-%m-%d')}", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    # Helper function to pretty print checkboxes
+    def format_val(key, val):
+        if key == "request_type":
+            act = "[x]" if str(val).lower() in ["new activation", "new", "activation"] else "[ ]"
+            chg = "[x]" if "change" in str(val).lower() else "[ ]"
+            return f"{act} New Activation    {chg} Change Request"
+        elif key == "hosting_platform":
+            linux = "[x]" if "linux" in str(val).lower() else "[ ]"
+            plesk = "[x]" if "plesk" in str(val).lower() else "[ ]"
+            iis = "[x]" if "iis" in str(val).lower() or "shard" in str(val).lower() else "[ ]"
+            return f"{linux} Linux- CPanel   {plesk} Windows Plesk Panel   {iis} Windows Shard- IIS"
+        elif key == "domain_registration_ntc":
+            yes = "[x]" if "yes" in str(val).lower() else "[ ]"
+            no = "[x]" if "no" in str(val).lower() else "[ ]"
+            return f"{yes} Yes    {no} No"
+        elif key == "vpn":
+            prov = "[x]" if "not" not in str(val).lower() and "provisioned" in str(val).lower() else "[ ]"
+            not_prov = "[x]" if "not" in str(val).lower() else "[ ]"
+            return f"{prov} Provisioned    {not_prov} Not Provisioned"
+        elif key == "ssl_type":
+            dv = "[x]" if "dv" in str(val).lower() else "[ ]"
+            wild = "[x]" if "wild" in str(val).lower() else "[ ]"
+            multi = "[x]" if "multi" in str(val).lower() else "[ ]"
+            return f"{dv} DV    {wild} Wildcard    {multi} Multi-Domain"
+        return val
+
+    # Section 1: Organization Details
+    pdf.section_title("Section 1: Organization & Request Details")
+    org_details = form_data.get("org_details", {})
+    for key, label in HOSTING_ORG_FIELDS:
+        val = org_details.get(key, "")
+        pdf.add_field_row(label, format_val(key, val))
+    pdf.ln(5)
+
+    # Section 2: Hosting Platform
+    pdf.section_title("Section 2: Web Server & Space Requirements")
+    server_details = form_data.get("server_details", {})
+    for key, label in HOSTING_SERVER_FIELDS:
+        val = server_details.get(key, "")
+        pdf.add_field_row(label, format_val(key, val))
+    pdf.ln(5)
+
+    # Section 3: DNS/Security
+    pdf.section_title("Section 3: Security & DNS Configuration")
+    dns_details = form_data.get("dns_details", {})
+    for key, label in HOSTING_DNS_FIELDS:
+        val = dns_details.get(key, "")
+        pdf.add_field_row(label, format_val(key, val))
+
+    return pdf.output()
+
+
+def generate_hosting_excel(form_data, user_name, user_email):
+    from config import HOSTING_ORG_FIELDS, HOSTING_SERVER_FIELDS, HOSTING_DNS_FIELDS
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Shared Web Hosting"
+
+    header_font = Font(name="Arial", size=14, bold=True, color="006432")
+    section_font = Font(name="Arial", size=12, bold=True, color="FFFFFF")
+    section_fill = PatternFill(start_color="006432", end_color="006432", fill_type="solid")
+    label_font = Font(name="Arial", size=10, bold=True)
+    value_font = Font(name="Arial", size=10)
+    thin_border = Border(left=Side(style="thin"), right=Side(style="thin"), top=Side(style="thin"), bottom=Side(style="thin"))
+
+    # Helper function to pretty print checkboxes
+    def format_val(key, val):
+        if key == "request_type":
+            act = "[x]" if str(val).lower() in ["new activation", "new", "activation"] else "[ ]"
+            chg = "[x]" if "change" in str(val).lower() else "[ ]"
+            return f"{act} New Activation    {chg} Change Request"
+        elif key == "hosting_platform":
+            linux = "[x]" if "linux" in str(val).lower() else "[ ]"
+            plesk = "[x]" if "plesk" in str(val).lower() else "[ ]"
+            iis = "[x]" if "iis" in str(val).lower() or "shard" in str(val).lower() else "[ ]"
+            return f"{linux} Linux- CPanel   {plesk} Windows Plesk Panel   {iis} Windows Shard- IIS"
+        elif key == "domain_registration_ntc":
+            yes = "[x]" if "yes" in str(val).lower() else "[ ]"
+            no = "[x]" if "no" in str(val).lower() else "[ ]"
+            return f"{yes} Yes    {no} No"
+        elif key == "vpn":
+            prov = "[x]" if "not" not in str(val).lower() and "provisioned" in str(val).lower() else "[ ]"
+            not_prov = "[x]" if "not" in str(val).lower() else "[ ]"
+            return f"{prov} Provisioned    {not_prov} Not Provisioned"
+        elif key == "ssl_type":
+            dv = "[x]" if "dv" in str(val).lower() else "[ ]"
+            wild = "[x]" if "wild" in str(val).lower() else "[ ]"
+            multi = "[x]" if "multi" in str(val).lower() else "[ ]"
+            return f"{dv} DV    {wild} Wildcard    {multi} Multi-Domain"
+        return val
+
+    # Title Row
+    ws.merge_cells("A1:D1")
+    ws["A1"] = "NTC Data Center Shared Web Hosting Service Activation Form"
+    ws["A1"].font = Font(name="Arial", size=14, bold=True, color="006432")
+    ws["A1"].alignment = Alignment(horizontal="center")
+    
+    ws["A2"] = f"Applicant: {user_name}  |  Email: {user_email}  |  Date: {datetime.datetime.now().strftime('%Y-%m-%d')}"
+    ws["A2"].font = value_font
+    ws.merge_cells("A2:D2")
+    ws["A2"].alignment = Alignment(horizontal="center")
+    
+    row = 4
+    
+    # Section 1: Organization Details
+    ws.merge_cells(f"A{row}:D{row}")
+    cell = ws[f"A{row}"]
+    cell.value = "Section 1: Organization & Request Details"
+    cell.font = section_font
+    cell.fill = section_fill
+    cell.alignment = Alignment(horizontal="left")
+    row += 1
+    
+    org_details = form_data.get("org_details", {})
+    for key, label in HOSTING_ORG_FIELDS:
+        ws[f"A{row}"] = label
+        ws[f"A{row}"].font = label_font
+        ws[f"A{row}"].border = thin_border
+        
+        ws.merge_cells(f"B{row}:D{row}")
+        ws[f"B{row}"] = format_val(key, org_details.get(key, ""))
+        ws[f"B{row}"].font = value_font
+        
+        for c in range(1, 5):
+            ws.cell(row=row, column=c).border = thin_border
+        row += 1
+        
+    row += 1
+    
+    # Section 2: Hosting Platform
+    ws.merge_cells(f"A{row}:D{row}")
+    cell = ws[f"A{row}"]
+    cell.value = "Section 2: Web Server & Space Requirements"
+    cell.font = section_font
+    cell.fill = section_fill
+    cell.alignment = Alignment(horizontal="left")
+    row += 1
+    
+    server_details = form_data.get("server_details", {})
+    for key, label in HOSTING_SERVER_FIELDS:
+        ws[f"A{row}"] = label
+        ws[f"A{row}"].font = label_font
+        ws[f"A{row}"].border = thin_border
+        
+        ws.merge_cells(f"B{row}:D{row}")
+        ws[f"B{row}"] = format_val(key, server_details.get(key, ""))
+        ws[f"B{row}"].font = value_font
+        
+        for c in range(1, 5):
+            ws.cell(row=row, column=c).border = thin_border
+        row += 1
+        
+    row += 1
+    
+    # Section 3: DNS/Security
+    ws.merge_cells(f"A{row}:D{row}")
+    cell = ws[f"A{row}"]
+    cell.value = "Section 3: Security & DNS Configuration"
+    cell.font = section_font
+    cell.fill = section_fill
+    cell.alignment = Alignment(horizontal="left")
+    row += 1
+    
+    dns_details = form_data.get("dns_details", {})
+    for key, label in HOSTING_DNS_FIELDS:
+        ws[f"A{row}"] = label
+        ws[f"A{row}"].font = label_font
+        ws[f"A{row}"].border = thin_border
+        
+        ws.merge_cells(f"B{row}:D{row}")
+        ws[f"B{row}"] = format_val(key, dns_details.get(key, ""))
+        ws[f"B{row}"].font = value_font
+        
+        for c in range(1, 5):
+            ws.cell(row=row, column=c).border = thin_border
+        row += 1
+        
+    from openpyxl.utils import get_column_letter
+    for col_idx in range(1, 5):
+        max_len = 0
+        for r in range(1, row):
+            val = str(ws.cell(row=r, column=col_idx).value or "")
+            if len(val) > max_len:
+                max_len = len(val)
+        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 4, 45)
+        
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
 
