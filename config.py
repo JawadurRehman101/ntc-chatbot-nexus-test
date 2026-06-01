@@ -13,11 +13,12 @@ SMTP_USERNAME = "test.jawad@ntc.org.pk"
 SMTP_PASSWORD = "16$secure@NTC"
 EMAIL_OTP_EXPIRY_MINUTES = 5
 VDS_RECIPIENT_EMAIL = "jawad.malakandkp@gmail.com"
+EMAIL_TEAM_RECIPIENT_EMAIL = "jawad.malakandkp@gmail.com"
 
 # --- NTC Services ---
 NTC_SERVICES = [
     {"name": "IaaS VDS (Virtual Dedicated Server)", "key": "vds", "available": True},
-    {"name": "E-mail Services", "key": "email", "available": False},
+    {"name": "E-mail Services", "key": "email", "available": True},
     {"name": "Co-location", "key": "colocation", "available": True},
     {"name": "Shared Web Hosting", "key": "hosting", "available": True},
     {"name": "SMS", "key": "sms", "available": False},

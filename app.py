@@ -150,6 +150,10 @@ def main():
                 st.write("Current Shared Hosting Form (Live from DB):")
                 db_hosting = get_hosting_form(st.session_state.user_email)
                 st.json(db_hosting)
+                st.write("Active Email Reset Tickets (Live from DB):")
+                from db import get_email_reset_tickets_by_email
+                db_reset_tickets = get_email_reset_tickets_by_email(st.session_state.user_email)
+                st.json(db_reset_tickets)
 
             if st.session_state.hf_token:
                 os.environ["HUGGINGFACEHUB_API_TOKEN"] = st.session_state.hf_token

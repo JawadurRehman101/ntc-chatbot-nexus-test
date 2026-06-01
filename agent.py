@@ -34,6 +34,12 @@ from db import (
     get_vds_form as db_get_vds_form, save_vds_form as db_save_vds_form,
     get_colocation_form as db_get_colocation_form, save_colocation_form as db_save_colocation_form,
     get_hosting_form as db_get_hosting_form, save_hosting_form as db_save_hosting_form,
+    create_email_reset_ticket as db_create_email_reset_ticket,
+    get_email_reset_ticket as db_get_email_reset_ticket,
+    get_email_reset_tickets_by_email as db_get_email_reset_tickets_by_email,
+    update_email_reset_credentials as db_update_email_reset_credentials,
+    update_email_reset_ticket_status as db_update_email_reset_ticket_status,
+    get_user_secret_key,
 )
 
 
@@ -176,6 +182,58 @@ RULES:
 - After calling a save tool, continue to the next section.
 - Do NOT make up data.
 - If the customer confirms the review, call submit tool IMMEDIATELY.
+
+=== NTC EMAIL RESET / PASSWORD RESET WORKFLOW ===
+
+When a customer asks about email reset, password reset, email password reset, or forgotten email credentials,
+follow this EXACT 6-step workflow. This is for NTC email service customers who have forgotten or need to reset
+their email password/credentials.
+
+**STEP 1 — Identification & Security Verification:**
+Identify that this is an 'Email Reset Issue'.
+Ask the customer for:
+1. Their current NTC email address (the one they need to reset)
+2. Their Google Authenticator OTP (6-digit code from their authenticator app)
+Once you have BOTH, you MUST call `verify_email_reset_identity` with the current_email and authenticator_otp.
+Do NOT proceed until verification is successful.
+
+**STEP 2 — Secure Ticket Generation:**
+Upon successful verification, call `initiate_email_reset_ticket` to generate a unique Ticket #.
+This will automatically create a secure ticket number.
+Display the generated Ticket # to the customer.
+
+**STEP 3 — User Interaction & Alternate Contact:**
+Ask the customer for their alternate email address (where they want to receive the new credentials).
+Once they provide it, call `submit_alternate_email` with the ticket_id and alternate_email.
+This will:
+- Create a database entry with status PENDING
+- Alert the NTC Email Team automatically
+
+**STEP 4 — (Automatic) Parallel Internal Actions:**
+The system automatically handles:
+- Alerting the Email Team via email notification
+- Creating the database entry for the ticket with PENDING status
+Inform the customer that their request has been submitted and the Email Team has been notified.
+Provide the Ticket # again for their reference.
+
+**STEP 5 — Team Resolution & Credential Handoff (Admin only):**
+The Email Team resolves the issue and provides new credentials.
+This step is handled externally by the Email Team. The tool `resolve_email_reset_ticket` is used
+by the admin/team to submit the new username and password.
+
+**STEP 6 — Status Check & Final Delivery:**
+If the customer asks about the status of their ticket, call `check_email_reset_status` with the ticket_id.
+If the status is RESOLVED and credentials are available:
+- The credentials will be automatically sent to the customer's alternate email.
+- The database status will be updated to RESOLVED.
+- Inform the customer that the new credentials have been sent to their alternate email.
+If the status is still PENDING, inform the customer that the Email Team is working on their request.
+
+IMPORTANT RULES FOR EMAIL RESET:
+- ALWAYS verify identity first (OTP + current email) before generating any ticket.
+- NEVER share credentials directly in the chat — they are sent via email only.
+- Each ticket has a unique Ticket # format like: 847291-X (6 digits + random letter suffix).
+- The customer can check their ticket status at any time using their Ticket #.
 """
 
 
@@ -823,6 +881,252 @@ def submit_hosting_form(config: RunnableConfig) -> str:
 
 
 # =============================================
+# EMAIL RESET TOOLS
+# =============================================
+
+@tool
+def verify_email_reset_identity(current_email: str, authenticator_otp: str, config: RunnableConfig) -> str:
+    """STEP 1: Verifies the customer's identity for email reset by checking their Authenticator OTP
+    against their registered account. Call this with the customer's current NTC email and their
+    Google Authenticator 6-digit OTP code."""
+    import pyotp
+    user_email = config.get("configurable", {}).get("user_email")
+    print(f"[TOOL CALLED] verify_email_reset_identity for {user_email}")
+    print(f"  current_email={current_email}, authenticator_otp={authenticator_otp}")
+    
+    # Get the secret key for the user's email (the logged-in user)
+    secret_key = get_user_secret_key(user_email)
+    if not secret_key:
+        return "VERIFICATION FAILED: Could not find your account. Please ensure you are logged in with the correct account."
+    
+    # Verify the OTP
+    totp = pyotp.TOTP(secret_key)
+    if totp.verify(authenticator_otp, valid_window=1):
+        # Store verified state in session
+        st.session_state._email_reset_verified = True
+        st.session_state._email_reset_current_email = current_email
+        return (f"IDENTITY VERIFIED SUCCESSFULLY!\n\n"
+                f"Your identity has been confirmed for the email: {current_email}\n\n"
+                f"Now proceed to STEP 2: Call initiate_email_reset_ticket to generate a secure Ticket number.")
+    else:
+        return "VERIFICATION FAILED: The OTP you provided is invalid or expired. Please try again with a fresh OTP from your Google Authenticator app."
+
+
+@tool
+def initiate_email_reset_ticket(config: RunnableConfig) -> str:
+    """STEP 2: Generates a unique secure Ticket number for the email reset request.
+    Call this ONLY after verify_email_reset_identity has succeeded.
+    Returns the ticket number to display to the customer."""
+    import random
+    import string
+    user_email = config.get("configurable", {}).get("user_email")
+    print(f"[TOOL CALLED] initiate_email_reset_ticket for {user_email}")
+    
+    # Check verification
+    if not st.session_state.get("_email_reset_verified"):
+        return "ERROR: Identity has not been verified yet. Please call verify_email_reset_identity first."
+    
+    # Generate unique ticket number: 6 digits + hyphen + random uppercase letter
+    ticket_number = f"{random.randint(100000, 999999)}-{random.choice(string.ascii_uppercase)}"
+    
+    # Store ticket ID in session for next step
+    st.session_state._email_reset_ticket_id = ticket_number
+    
+    print(f"  Generated Ticket #: {ticket_number}")
+    return (f"SECURE TICKET GENERATED!\n\n"
+            f"Ticket # {ticket_number}\n\n"
+            f"Please share this Ticket number with the customer and ask them to provide their "
+            f"alternate email address where they want to receive the new credentials.\n\n"
+            f"Now proceed to STEP 3: Ask the customer for their alternate email address, "
+            f"then call submit_alternate_email.")
+
+
+@tool
+def submit_alternate_email(ticket_id: str, alternate_email: str, config: RunnableConfig) -> str:
+    """STEP 3 and 4 combined: Saves the alternate email address, creates the database entry with PENDING status,
+    and alerts the NTC Email Team. Call this after the customer provides their alternate email address.
+    ticket_id is the Ticket number from Step 2. alternate_email is where credentials will be sent."""
+    user_email = config.get("configurable", {}).get("user_email")
+    user_name = config.get("configurable", {}).get("user_name", "Customer")
+    current_email = st.session_state.get("_email_reset_current_email", "")
+    
+    print(f"[TOOL CALLED] submit_alternate_email for {user_email}")
+    print(f"  ticket_id={ticket_id}, alternate_email={alternate_email}, current_email={current_email}")
+    
+    # STEP 4a: Create Database Entry with PENDING status
+    db_result = db_create_email_reset_ticket(ticket_id, user_email, current_email, alternate_email)
+    if not db_result:
+        return "ERROR: Failed to create the ticket entry in the database. Please try again."
+    
+    print(f"  Database entry created with PENDING status")
+    
+    # STEP 4b: Alert Email Team via email notification
+    from config import EMAIL_TEAM_RECIPIENT_EMAIL
+    alert_body = f"""
+    <html><body>
+    <h2>New Email Reset Request - Action Required</h2>
+    <table border='1' cellpadding='8' cellspacing='0' style='border-collapse:collapse; font-family:Arial;'>
+        <tr style='background:#006432; color:white;'>
+            <td colspan='2'><b>Email Reset Ticket Details</b></td>
+        </tr>
+        <tr><td><b>Ticket #</b></td><td>{ticket_id}</td></tr>
+        <tr><td><b>Customer Name</b></td><td>{user_name}</td></tr>
+        <tr><td><b>Customer Account Email</b></td><td>{user_email}</td></tr>
+        <tr><td><b>Email to Reset</b></td><td>{current_email}</td></tr>
+        <tr><td><b>Alternate Email (for delivery)</b></td><td>{alternate_email}</td></tr>
+        <tr><td><b>Status</b></td><td style='color:orange;'><b>PENDING</b></td></tr>
+        <tr><td><b>Date</b></td><td>{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}</td></tr>
+    </table>
+    <p style='margin-top:15px;'>Please resolve this email reset request and provide new credentials 
+    through the NTC Admin panel or by using the resolve_email_reset_ticket tool.</p>
+    <p><i>- NTC Nexus Automated Alert System</i></p>
+    </body></html>
+    """
+    
+    email_sent = send_email_with_attachment(
+        EMAIL_TEAM_RECIPIENT_EMAIL,
+        f"Email Reset Request - Ticket #{ticket_id} - {user_name}",
+        alert_body
+    )
+    
+    # Also send to umerhayatkhan1976@gmail.com
+    email_sent_umer = send_email_with_attachment(
+        "umerhayatkhan1976@gmail.com",
+        f"Email Reset Request - Ticket #{ticket_id} - {user_name}",
+        alert_body
+    )
+    
+    print(f"  Email Team Alert: {'sent' if email_sent else 'FAILED'}")
+    print(f"  Umer Alert: {'sent' if email_sent_umer else 'FAILED'}")
+    
+    # Clean up session verification state
+    st.session_state._email_reset_verified = False
+    
+    team_status = "Email Team has been notified successfully" if (email_sent or email_sent_umer) else "Email notification failed, but the ticket has been created"
+    
+    return (f"EMAIL RESET REQUEST SUBMITTED SUCCESSFULLY!\n\n"
+            f"Summary:\n"
+            f"- Ticket #: {ticket_id}\n"
+            f"- Email to Reset: {current_email}\n"
+            f"- Credentials will be sent to: {alternate_email}\n"
+            f"- Status: PENDING\n"
+            f"- {team_status}\n\n"
+            f"The NTC Email Team will process your request and generate new credentials. "
+            f"Once resolved, the new username and password will be securely sent to your alternate email address.\n\n"
+            f"You can check the status of your request at any time by providing your Ticket # {ticket_id}.")
+
+
+@tool
+def resolve_email_reset_ticket(ticket_id: str, new_username: str, new_password: str, config: RunnableConfig) -> str:
+    """STEP 5: (Email Team / Admin use) Resolves an email reset ticket by providing new credentials.
+    This stores the new username and password, marks the ticket as RESOLVED, and sends the
+    credentials to the customer's alternate email. Call with the ticket_id, new_username, and new_password."""
+    user_email = config.get("configurable", {}).get("user_email")
+    print(f"[TOOL CALLED] resolve_email_reset_ticket for ticket {ticket_id}")
+    
+    # Get the ticket
+    ticket = db_get_email_reset_ticket(ticket_id)
+    if not ticket:
+        return f"ERROR: Ticket #{ticket_id} not found in the system."
+    
+    if ticket["status"] == "RESOLVED":
+        return f"Ticket #{ticket_id} has already been resolved."
+    
+    # Update credentials and mark as RESOLVED
+    updated = db_update_email_reset_credentials(ticket_id, new_username, new_password)
+    if not updated:
+        return "ERROR: Failed to update the ticket with new credentials."
+    
+    # STEP 6: Send credentials to alternate email
+    alternate_email = ticket["alternate_email"]
+    credential_body = f"""
+    <html><body>
+    <div style='font-family:Arial; max-width:600px; margin:0 auto;'>
+        <div style='background:#006432; color:white; padding:20px; text-align:center;'>
+            <h2>National Telecommunication Corporation</h2>
+            <p>Email Credentials Reset - Completed</p>
+        </div>
+        <div style='padding:20px; border:1px solid #ddd;'>
+            <p>Dear Customer,</p>
+            <p>Your email reset request (Ticket # <b>{ticket_id}</b>) has been resolved. 
+            Below are your new credentials:</p>
+            <table border='1' cellpadding='10' cellspacing='0' style='border-collapse:collapse; width:100%; margin:15px 0;'>
+                <tr style='background:#006432; color:white;'>
+                    <td colspan='2' align='center'><b>New Email Credentials</b></td>
+                </tr>
+                <tr>
+                    <td><b>Username</b></td>
+                    <td style='font-family:monospace; font-size:14px;'>{new_username}</td>
+                </tr>
+                <tr>
+                    <td><b>Password</b></td>
+                    <td style='font-family:monospace; font-size:14px;'>{new_password}</td>
+                </tr>
+            </table>
+            <p style='color:red;'><b>Important:</b> Please change your password immediately after logging in for security purposes.</p>
+            <p>If you did not request this reset, please contact NTC support immediately at <b>1218</b> or email <b>info@ntc.net.pk</b>.</p>
+            <hr>
+            <p style='color:#888; font-size:12px;'>This is an automated message from NTC Nexus Customer Support Portal. 
+            Do not reply to this email.</p>
+        </div>
+    </div>
+    </body></html>
+    """
+    
+    email_sent = send_email_with_attachment(
+        alternate_email,
+        f"Your NTC Email Credentials - Ticket #{ticket_id} - RESOLVED",
+        credential_body
+    )
+    
+    print(f"  Credentials sent to {alternate_email}: {'sent' if email_sent else 'FAILED'}")
+    
+    if email_sent:
+        return (f"TICKET #{ticket_id} RESOLVED SUCCESSFULLY!\n\n"
+                f"- New credentials have been securely sent to: {alternate_email}\n"
+                f"- Ticket Status: RESOLVED\n\n"
+                f"The customer has been advised to change their password after first login.")
+    else:
+        return (f"Ticket #{ticket_id} resolved and credentials stored, but email delivery to "
+                f"{alternate_email} failed. Please retry or contact the customer directly.")
+
+
+@tool
+def check_email_reset_status(ticket_id: str, config: RunnableConfig) -> str:
+    """STEP 6: Checks the status of an email reset ticket. Call when a customer asks about their
+    email reset request status. Provide the ticket_id (Ticket number)."""
+    user_email = config.get("configurable", {}).get("user_email")
+    print(f"[TOOL CALLED] check_email_reset_status for ticket {ticket_id} by {user_email}")
+    
+    ticket = db_get_email_reset_ticket(ticket_id)
+    if not ticket:
+        return f"Ticket #{ticket_id} was not found in our system. Please check the ticket number and try again."
+    
+    status = ticket["status"]
+    
+    if status == "RESOLVED":
+        return (f"Ticket #{ticket_id} - RESOLVED\n\n"
+                f"Great news! Your email reset request has been completed.\n"
+                f"- Email Reset: {ticket['current_email']}\n"
+                f"- Credentials sent to: {ticket['alternate_email']}\n"
+                f"- Resolved on: {ticket['updated_at']}\n\n"
+                f"Please check your alternate email for the new credentials. "
+                f"Remember to change your password after first login.")
+    elif status == "PENDING":
+        return (f"Ticket #{ticket_id} - PENDING\n\n"
+                f"Your email reset request is currently being processed by the NTC Email Team.\n"
+                f"- Email to Reset: {ticket['current_email']}\n"
+                f"- Credentials will be sent to: {ticket['alternate_email']}\n"
+                f"- Submitted on: {ticket['created_at']}\n\n"
+                f"Please allow some time for the team to process your request. "
+                f"You will receive the new credentials at your alternate email once resolved.")
+    else:
+        return (f"Ticket #{ticket_id} - Status: {status}\n\n"
+                f"- Email: {ticket['current_email']}\n"
+                f"- Last Updated: {ticket['updated_at']}")
+
+
+# =============================================
 # AGENT CREATION
 # =============================================
 
@@ -834,6 +1138,9 @@ ALL_TOOLS = [
     review_colocation_form, submit_colocation_form,
     save_hosting_org_details, save_hosting_server_details,
     save_hosting_dns_details, review_hosting_form, submit_hosting_form,
+    verify_email_reset_identity, initiate_email_reset_ticket,
+    submit_alternate_email, resolve_email_reset_ticket,
+    check_email_reset_status,
 ]
 
 
