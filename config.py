@@ -1,9 +1,9 @@
-# --- Database connection details ---
-DB_HOST = "dpg-d7ssbhgg4nts73e4o7mg-a.oregon-postgres.render.com"
-DB_NAME = "demo_db_brb1"
-DB_USER = "demo_db_brb1_user"
-DB_PASSWORD = "dIbUkNpX5oAZxK2DtVHafYjWEtyLkxDJ"
-DB_PORT = "5432"
+# --- Database connection details (UPDATED FOR LOCAL ISOLED ENVIRONMENT) ---
+DB_HOST = "127.0.0.1"          # Connects to your local VM loopback interface
+DB_NAME = "demo_db"            # Your newly restored database name
+DB_USER = "demo_user"          # The local user you created
+DB_PASSWORD = "leader@123"     # The password assigned to demo_user
+DB_PORT = "5432"               # The default port running your Postgres 18 cluster
 
 # --- SMTP Configuration ---
 SMTP_SERVER = "mail.ntc.org.pk"
